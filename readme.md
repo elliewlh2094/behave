@@ -1,30 +1,18 @@
-# behave: A behavior tree implementation in Python
+# `behave`: Python 的行為樹套件
 
-With `behave`, you can define a behavior tree like this:
+## 使用方式
 
-````
-tree = (
-    is_greater_than_10 >> wow_large_number
-    | is_between_0_and_10 >> count_from_1
-    | failer * repeat(3) * doomed
-)
+使用時，需要將 `behave` 目錄放置在主程式相同的目錄內。
 
-bb = tree.blackboard(10)
-while bb.tick() == RUNNING:
-    pass
+### 匯入 behave 的所有函式定義
 
 ````
-
-
-### Import from behave:
-
-````
-from behave import condition, action, FAILURE
+from behave import *
 ````
 
-### Define condition nodes
+### 定義條件節點（Condition node）
 
-Conditions are defined by functions return a `bool` value. The function can take any number of arguments.
+使用 `@condition` 宣告條件節點。條件節點會回傳布林值（`True`, `False`），分別對應執行狀態 `SUCCESS`, `FAILURE`。
 
 ````
 @condition
@@ -37,9 +25,9 @@ def is_between_0_and_10(x):
 
 ````
 
-### Define action nodes
+### 定義動作節點（Action node）
 
-Action functions can return `SUCCESS`, `FAILURE`, `RUNNING` states. Return `None` will be treated as `SUCCESS`.
+使用 `@action` 宣告動作節點。動作節點會回傳執行狀態（`SUCCESS`, `FAILURE`, `RUNNING`），如果不設定回傳值（相當於回傳 `None`）則視同回傳 `SUCCESS`，即動作節點預設為執行成功。
 
 ````
 @action
@@ -51,6 +39,8 @@ def doomed(x):
     print "%d is doomed" % x
     return FAILURE
 ````
+
+### 定義動作節點，生成器（Generator）版本
 
 And you can define an action with a generator function:
 
@@ -68,23 +58,27 @@ def count_from_1(x):
 
 ````
 
-### Define a sequence
+### 序列（Sequence）節點/運算子
+
+在 `behave` 中，序列節點以運算子 `>>` 的形式實現。依序執行子節點；遇 `FAILURE` 立刻回傳 `FAILURE`；當全部子節點成功才回傳 `SUCCESS`。 
 
 ````
 seq = is_greater_than_10 >> wow_large_number
 ````
 
-### Define a selector
+### 選擇（Selector）節點/運算子
+
+在 `behave` 中，序列節點以運算子 `|` 的形式實現。依序嘗試子節點；任一子節點回傳 `SUCCESS` 即回傳 `SUCCESS`；全部失敗才回傳 `FAILURE`。
 
 ````
 sel = is_greater_than_10 | is_between_0_and_10
 ````
 
-### Decorate nodes
+### 裝飾器節點（Decorator）
+
+可用的裝飾器包含 `forever()`, `repeat(n)`, `succeeder()`, `failer()`。將修飾器包覆在節點外層；可用 * 將多個 decorator 串連。
 
 ````
-from behave import repeat, forever, succeeder
-
 decorated_1 = forever(count_from_1)
 decorated_2 = succeeder(doomed)
 decorated_3 = repeat(10)(count_from_1)
@@ -93,8 +87,6 @@ decorated_3 = repeat(10)(count_from_1)
 For readability reason, you can also use chaining style:
 
 ````
-from behave import repeat, forever, succeeder, failer
-
 composite_decorator = repeat(3) * repeat(2)   # It's identical to repeat(6)
 
 decorated_1 = forever * count_from_1
@@ -103,7 +95,9 @@ decorated_3 = repeat(10) * count_from_1
 decorated_4 = failer * repeat(10) * count_from_1
 ````
 
-### Put everything together
+### 組成行為樹
+
+在行為樹中，每一個節點都視為一個子樹，一個子樹用 `()` 包起來。可以透過運算子 `>>`, `|` 組合成多層的樹。
 
 ````
 tree = (
@@ -113,8 +107,9 @@ tree = (
 )
 ````
 
-Every node is a tree itself. And a big tree is composed by many sub trees. To iterate the tree:
+### 行為樹執行器/黑板（Blackboard）
 
+用 `tree.blackboard()` 方法建立行為樹黑板。並且使用 `tick()` 方法定期呼叫，tick 是行為樹執行一次的意思。最後透過 `assert` 來進行條件判斷，在做完一次 tick 後行為樹執行狀態應該要是 `SUCCESS` 或是 `FAILURE`，而不是 `RUNNING`。
 ````
 bb = tree.blackboard(5) # Creates an run instance
 
@@ -146,7 +141,7 @@ count 5
 state = Success
 ````
 
-## Wait, did I mention debugger?
+### 除錯器（Debugger）
 
 To debug the tree, you need to:
 
@@ -249,8 +244,23 @@ count 5
 state = Success
 ````
 
-## Run Tests with [nose](https://nose.readthedocs.org/en/latest/)
+## 整合 ROS2 的注意事項
 
-````
-nosetests test
-````
+1. 節點宣告：將 `Condition` / `Action` 寫成類別方法，可直接存取成員變數（感測器狀態、publisher）。
+
+2. 執行頻率：用 `rclpy.create_timer()` 依需求設定 tick 週期。
+
+3. 非同步動作：若 `Action` 需等待回覆 (e.g. arm -> 狀態回報)，可用 Generator Action `yield RUNNING` 直到條件達成。
+
+4. 行為切換：利用 `Selector` 的優先權，將高優先度安全檢查（如：電量、GPS 失效...）放在樹最前端。
+
+## 模組解析
+
+- `core.py`:  
+    定義三大回傳狀態 `SUCCESS` / `FAILURE` / `RUNNING`、所有節點（`Action` / `Condition` / `Sequence` / `Selector` / `Decorator`...）核心邏輯，以及 `Blackboard` 執行器。
+
+- `helper.py`  
+    提供 `@action` / `@condition` 等 Python decorator 以簡化節點宣告，並含若干判斷函式（`is_action`...）。
+
+- `decorator.py`  
+    常用修飾節點 (decorator) 之實作，如 `forever` / `repeat` / `succeeder` / `failer`。
